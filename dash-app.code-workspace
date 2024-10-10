@@ -1,0 +1,12 @@
+{
+	"folders": [
+		{
+			"path": "."
+		}
+	],
+	"settings": {
+		"python.terminal.shellIntegration.enabled": true,
+		"python.defaultInterpreterPath": "D:\\diplomka\\\\dash-app\\envs\\python.exe",
+		"python.terminal.activateEnvInCurrentTerminal": true
+	}
+}
