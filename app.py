@@ -1,17 +1,49 @@
 import json
+import platform
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objs as go
+import plotly.io as pio
 from dash import Dash, dcc, html
 from dash.dependencies import Input, Output
 from pymongo import MongoClient
 from pymongo.collection import Collection
 from pymongo.database import Database
 
+if platform.system() == "Windows":
 CC_DATASET = Path("D:\diplomka\seccerts-data\cc\processed_dataset.json")
+    CC_DATASET = Path("D:/diplomka/seccerts-data/cc/processed_dataset.json")
+    DF_CVES = Path("D:/diplomka/sec-certs/notebooks/cc/results/exploded_cves.csv")
+    DF_VALIDITY = Path("D:/diplomka/sec-certs/notebooks/cc/results/df_validity.csv")
+    DF_AVG_EAL = Path("D:/diplomka/sec-certs/notebooks/cc/results/avg_eal.csv")
+    DF_INTERESTING_SCHEMAS = Path(
+        "D:/diplomka/sec-certs/notebooks/cc/results/interesting_schemes.csv"
+    )
+    DF_POPULAR_CATEGORIES = Path(
+        "D:/diplomka/sec-certs/notebooks/cc/results/popular_categories.csv"
+    )
+else:
+    CC_DATASET = Path("/mnt/d/diplomka/seccerts-data/cc/processed_dataset.json")
+    DF_CVES = Path("/mnt/d/diplomka/sec-certs/notebooks/cc/results/exploded_cves.csv")
+    DF_VALIDITY = Path("/mnt/d/diplomka/sec-certs/notebooks/cc/results/df_validity.csv")
+    DF_AVG_EAL = Path("/mnt/d/diplomka/sec-certs/notebooks/cc/results/avg_eal.csv")
+    DF_INTERESTING_SCHEMAS = Path(
+        "/mnt/d/diplomka/sec-certs/notebooks/cc/results/interesting_schemes.csv"
+    )
+    DF_POPULAR_CATEGORIES = Path(
+        "/mnt/d/diplomka/sec-certs/notebooks/cc/results/popular_categories.csv"
+    )
+
+df_cves = pd.read_csv(DF_CVES)
+df_validity = pd.read_csv(DF_VALIDITY)
+df_avg_levels = pd.read_csv(DF_AVG_EAL)
+df_interesting_schemes = pd.read_csv(DF_INTERESTING_SCHEMAS)
+df_popular_categories = pd.read_csv(DF_POPULAR_CATEGORIES)
+
+color_palette = px.colors.qualitative.T10
 
 # Initialize Dash app
 app = Dash(__name__)
@@ -40,6 +72,8 @@ def get_collection(name: str, db: Database) -> Collection:
 
 def fetch_data(source: Collection | Path) -> pd.DataFrame:
     if isinstance(source, Path):
+        if source.suffix == ".csv":
+            return pd.read_csv(source)
         return pd.read_json(source)
 
     cursor = source.find({})
@@ -73,13 +107,18 @@ app.layout = html.Div(
             value="All",
             multi=False,
         ),
+        html.H1(children="Category Distribution"),
         # Pie chart for category distribution
         dcc.Graph(id="category-pie-chart"),
         # Bar chart for category distribution per year
+        html.H1(children="Category Distribution per Year"),
         dcc.Graph(id="category-year-bar-chart"),
+        html.H1(children="Certificate Validity Periods"),
         dcc.Graph(id="certificate-validity-boxplot"),
         html.H1(children="Evolution of Average EAL Over Time"),
         dcc.Graph(id="eal-line-chart"),
+        html.H1(children="Interesting Schemes Evolution"),
+        dcc.Graph(id="schemes-line-chart"),
     ]
 )
 
@@ -109,10 +148,10 @@ def update_pie_chart(selected_category):
             )
         ],
         "layout": go.Layout(
-            title=f"Certificates Grouped by Category: {selected_category}"
+            title=f"Certificates Grouped by Category: {selected_category}",
+            margin=dict(t=20, l=20, r=20, b=20),  # Tight layout
         ),
     }
-
     return figure
 
 
@@ -135,10 +174,15 @@ def update_bar_chart(selected_category):
 
     # Create a stacked bar chart
     data = []
-    for category in category_per_year.columns:
+    for idx, category in enumerate(category_per_year.columns):
         data.append(
             go.Bar(
-                name=category, x=category_per_year.index, y=category_per_year[category]
+                name=category,
+                x=category_per_year.index,
+                y=category_per_year[category],
+                marker=dict(
+                    color=color_palette[idx % len(color_palette)]
+                ),  # Apply predefined color palette
             )
         )
 
@@ -147,9 +191,11 @@ def update_bar_chart(selected_category):
         "data": data,
         "layout": go.Layout(
             title="Certificates Grouped by Category and Year",
-            barmode="stack",
+            barmode="relative",
             xaxis={"title": "Year"},
             yaxis={"title": "Number of Certificates"},
+            margin=dict(t=40, l=40, r=40, b=40),  # Tight layout
+            height=1000,
         ),
     }
 
@@ -171,6 +217,7 @@ def update_boxplot(selected_year):
     df["validity"] = (df["not_valid_after"] - df["not_valid_before"]).dt.days / 365.25
 
     df["year_from"] = df["year_from"].astype(str)
+    sorted_years = sorted(df["year_from"].unique())
 
     # Create the boxplot
     figure = px.box(
@@ -182,100 +229,131 @@ def update_boxplot(selected_year):
             "validity": "Lifetime of certificates (in years)",
             "year_from": "Year of certification",
         },
+        category_orders={"year_from": sorted_years},
+        color_discrete_sequence=color_palette,
+        width=1400,
     )
     return figure
 
 
-def prepare_eal_data(df: pd.DataFrame) -> pd.DataFrame:
-    long_categories = {
-        "Access Control Devices and Systems": "Access control",
-        "Biometric Systems and Devices": "Biometrics",
-        "Boundary Protection Devices and Systems": "Boundary protection",
-        "ICs, Smart Cards and Smart Card-Related Devices and Systems": "ICs, Smartcards",
-        "Network and Network-Related Devices and Systems": "Network(-related) devices",
-    }
-    # Map EAL categories to numeric values
-    eal_to_num_mapping = {
-        eal: index
-        for index, eal in enumerate(df["eal"].astype(dtype="category").cat.categories)
-    }
-
-    df["eal_number"] = df.eal.map(eal_to_num_mapping)
-    df.eal_number = df.eal_number.astype("Int64")
-
-    # First avg_levels DataFrame grouped by 'year_from'
-    avg_levels = (
-        df.loc[(df.year_from < 2024) & (df.eal_number.notnull())]
-        .copy()
-        .groupby(["year_from"])
-        .agg({"year_from": "size", "eal_number": "mean"})
-        .rename(columns={"year_from": "n_certs"})
-        .reset_index()
-    )
-    avg_levels.year_from = avg_levels.year_from.astype("float")
-    avg_levels.eal_number = avg_levels.eal_number.astype("float")
-
-    # Second avg_levels DataFrame grouped by 'year_from' and 'category'
-    avg_levels = (
-        df.loc[df.eal_number.notnull()]
-        .copy()
-        .groupby(["year_from", "category"])
-        .agg({"year_from": "size", "eal_number": "mean"})
-        .rename(columns={"year_from": "n_certs"})
-        .reset_index()
-    )
-    avg_levels.year_from = avg_levels.year_from.astype("float")
-    avg_levels.eal_number = avg_levels.eal_number.astype("float")
-    avg_levels.category = avg_levels.category.map(lambda x: long_categories.get(x, x))
-
-    # Map categories to 'smartcard_category'
-    avg_levels["smartcard_category"] = avg_levels.category.map(
+def prepare_data_for_eal_line_chart() -> pd.DataFrame:
+    """Prepare data for the EAL line chart."""
+    df_avg_levels = fetch_data(DF_AVG_EAL)
+    df_avg_levels["smartcard_category"] = df_avg_levels.category.map(
         lambda x: x if x == "ICs, Smartcards" else "Other 14 categories"
     )
-    return avg_levels, eal_to_num_mapping
+
+    df_other_categories = df_avg_levels[
+        df_avg_levels["smartcard_category"] == "Other 14 categories"
+    ]
+    df_other_categories_grouped = df_other_categories.groupby(
+        ["year_from", "smartcard_category"], as_index=False
+    ).agg({"eal_number": "mean"})
+    print(df_other_categories_grouped["smartcard_category"].value_counts())
+
+    return df_avg_levels, df_other_categories_grouped
 
 
-# Callback to update the line chart
 @app.callback(Output("eal-line-chart", "figure"), [Input("eal-line-chart", "id")])
 def update_line_chart(_):
-    # Create the figure for the line plot
+    """
+    Update the EAL line chart with the latest data.
+    """
     df = fetch_data(CC_DATASET)
-    avg_levels, eal_to_num_mapping = prepare_eal_data(df)
+
+    eal_to_num_mapping = {
+        eal: index
+        for index, eal in enumerate(df["eal"].astype("category").cat.categories)
+    }
+
+    df_avg_levels, df_other_categories_grouped = prepare_data_for_eal_line_chart()
 
     fig = go.Figure()
 
-    # Separate data for each smartcard category
-    for category in avg_levels["smartcard_category"].unique():
-        category_data = avg_levels[avg_levels["smartcard_category"] == category]
-        fig.add_trace(
-            go.Scatter(
-                x=category_data["year_from"],
-                y=category_data["eal_number"],
-                mode="lines+markers",
-                name=category,
-                marker=dict(symbol="circle"),
-                line_shape="linear",
-            )
+    df_ics_smartcards = df_avg_levels[
+        df_avg_levels["smartcard_category"] == "ICs, Smartcards"
+    ]
+    fig.add_trace(
+        go.Scatter(
+            x=df_ics_smartcards["year_from"],
+            y=df_ics_smartcards["eal_number"],
+            mode="lines+markers",
+            name="ICs, Smartcards",
+            marker=dict(symbol="circle", size=5, color="purple", line=dict(width=2)),
+            line=dict(dash="dash", color="orange", width=3),
         )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=df_other_categories_grouped["year_from"],
+            y=df_other_categories_grouped["eal_number"],
+            mode="lines+markers",
+            name="Other 14 categories",
+            marker=dict(symbol="circle", size=2, color="green"),
+            line=dict(dash="solid", color="green", width=2),
+        )
+    )
 
     ymin = 1
     ymax = 9
     ylabels = [
         x if "+" in x else x for x in list(eal_to_num_mapping.keys())[ymin : ymax + 1]
     ]
-    # Set up layout configurations
     fig.update_layout(
         title="Average EAL Over Time for Smartcards and Other Categories",
         xaxis_title="Year",
         yaxis_title="Average EAL Number",
         legend_title="Smartcard Category",
-        xaxis=dict(tickmode="linear", tick0=1998, dtick=1),  # Set x-axis ticks manually
-        yaxis=dict(
-            tickvals=np.arange(1, 10, 1), ticktext=ylabels
-        ),  # Set y-axis limits and ticks
-        margin=dict(t=20, l=20, r=20, b=20),  # Tight layout
+        xaxis=dict(tickmode="linear", tick0=1998, dtick=1),
+        yaxis=dict(tickvals=np.arange(1, 10, 1), ticktext=ylabels),
+        margin=dict(t=20, l=20, r=20, b=20),
         width=1800,
         height=800,
+        showlegend=True,
+    )
+
+    return fig
+
+
+@app.callback(
+    Output(
+        "schemes-line-chart", "figure"
+    ),  # Output is the figure in the 'schemes-line-chart'
+    [Input("schemes-line-chart", "id")],  # Trigger callback on loading
+)
+def update_schemes_graph(_):
+    # Create the line plot using Plotly Express
+    df_interesting_schemes = fetch_data(DF_INTERESTING_SCHEMAS)
+    fig = px.line(
+        df_interesting_schemes,
+        x="year_from",
+        y="size",
+        color="scheme",  # Scheme contains the country codes
+        markers=True,
+        labels={
+            "year_from": "Year",
+            "size": "Size",
+            "scheme": "Country Code",  # Display country code in the legend
+        },
+        title="Evolution of Interesting Schemes",
+    )
+
+    # Update the layout to match the style from the PDF
+    fig.update_layout(
+        xaxis=dict(
+            tickmode="array",
+            tickvals=[1998, 2003, 2008, 2013, 2018, 2023],  # Set x-axis ticks manually
+            range=[1997, 2024],  # Set the x-axis range
+        ),
+        yaxis=dict(
+            tickvals=list(range(0, 90, 20)),  # Set y-axis tick values
+            range=[0, 80],  # Set the y-axis range
+        ),
+        legend_title="Country Code",  # Set legend title to Country Code
+        width=1000,
+        height=600,
+        margin=dict(t=20, l=20, r=20, b=20),  # Tight layout
+        showlegend=True,
     )
 
     return fig
