@@ -14,7 +14,8 @@ from pymongo.collection import Collection
 from pymongo.database import Database
 
 if platform.system() == "Windows":
-CC_DATASET = Path("D:\diplomka\seccerts-data\cc\processed_dataset.json")
+    SVGS_DIR = Path("D:/diplomka/seccerts-data/svgs")
+    SVGS_DIR.mkdir(parents=True, exist_ok=True)
     CC_DATASET = Path("D:/diplomka/seccerts-data/cc/processed_dataset.json")
     DF_CVES = Path("D:/diplomka/sec-certs/notebooks/cc/results/exploded_cves.csv")
     DF_VALIDITY = Path("D:/diplomka/sec-certs/notebooks/cc/results/df_validity.csv")
@@ -26,6 +27,8 @@ CC_DATASET = Path("D:\diplomka\seccerts-data\cc\processed_dataset.json")
         "D:/diplomka/sec-certs/notebooks/cc/results/popular_categories.csv"
     )
 else:
+    SVGS_DIR = Path("/mnt/d/diplomka/seccerts-data/svgs")
+    SVGS_DIR.mkdir(parents=True, exist_ok=True)
     CC_DATASET = Path("/mnt/d/diplomka/seccerts-data/cc/processed_dataset.json")
     DF_CVES = Path("/mnt/d/diplomka/sec-certs/notebooks/cc/results/exploded_cves.csv")
     DF_VALIDITY = Path("/mnt/d/diplomka/sec-certs/notebooks/cc/results/df_validity.csv")
@@ -114,6 +117,7 @@ app.layout = html.Div(
         html.H1(children="Category Distribution per Year"),
         dcc.Graph(id="category-year-bar-chart"),
         html.H1(children="Certificate Validity Periods"),
+        html.Button("Save as SVG", id="save-svg-btn"),
         dcc.Graph(id="certificate-validity-boxplot"),
         html.H1(children="Evolution of Average EAL Over Time"),
         dcc.Graph(id="eal-line-chart"),
@@ -200,6 +204,26 @@ def update_bar_chart(selected_category):
     }
 
     return figure
+
+
+@app.callback(
+    Output("save-svg-btn", "children"),
+    [
+        Input("certificate-validity-boxplot", "figure"),
+        Input("save-svg-btn", "n_clicks"),
+    ],
+)
+def save_chart_as_svg(fig, n_clicks):
+    if n_clicks is not None:
+        # Convert the figure dict back to a plotly figure object
+        fig_obj = go.Figure(fig)
+
+        # Save the figure as an SVG
+        svg_path = SVGS_DIR / f"boxplot_chart_{n_clicks}.svg"
+        pio.write_image(fig_obj, svg_path, format="svg")
+
+        return f"Saved as SVG {n_clicks}"
+    return "Save as SVG"
 
 
 # Callback to generate the boxplot for certificate validity periods
