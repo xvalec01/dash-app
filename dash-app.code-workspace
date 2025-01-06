@@ -5,8 +5,22 @@
 		}
 	],
 	"settings": {
-		"python.terminal.shellIntegration.enabled": true,
+		"python.terminal.shellIntegration.enabled": false,
 		"python.defaultInterpreterPath": "D:\\diplomka\\\\dash-app\\envs\\python.exe",
-		"python.terminal.activateEnvInCurrentTerminal": true
-	}
+		"python.terminal.activateEnvInCurrentTerminal": true,
+		"terminal.integrated.defaultProfile.windows": "PowerShell",
+		"terminal.integrated.profiles.windows": {
+			"PowerShell": {
+				"source": "PowerShell",
+				"icon": "terminal-powershell",
+				"args": [
+					"-ExecutionPolicy",
+					"ByPass",
+					"-NoExit",
+					"-Command",
+					"& 'C:\\Users\\david.valecky\\miniconda3\\shell\\condabin\\conda-hook.ps1'"
+				]
+			}
+		}
+	},
 }
